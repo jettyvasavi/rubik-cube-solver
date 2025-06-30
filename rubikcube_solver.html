@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1D "Flat" Rubik's Cube Solver</title>
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 40px; padding: 20px 20px 0 20px; background-color: #f0f0f0; }
+        .controls, .solution { flex: 1; max-width: 350px; min-width: 300px; }
+        .cube-container { flex: 2; text-align: center; min-width: 500px; }
+        h1, h2 { text-align: center; color: #333; }
+        button { display: inline-block; padding: 10px 15px; margin: 5px; font-size: 16px; cursor: pointer; border: 1px solid #ccc; border-radius: 5px; background-color: #fff; }
+        button:hover { background-color: #e0e0e0; }
+        .main-actions button { background-color: #28a745; color: white; width: calc(50% - 12px); }
+        .main-actions button#solve-btn { background-color: #007bff; }
+        #status { font-weight: bold; color: #d9534f; height: 20px; margin-top: 10px; text-align: center; font-size: 1.1em; }
+        
+        #flat-cube-container {
+            display: grid;
+            grid-template-columns: repeat(4, 120px);
+            grid-template-rows: repeat(3, 120px);
+            gap: 5px;
+            justify-content: center;
+            margin: 20px auto;
+        }
+        .flat-face {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2px;
+            border: 2px solid #333;
+            background-color: #333;
+            padding: 2px;
+        }
+        
+        .face-U { grid-area: 1 / 2 / 2 / 3; }
+        .face-L { grid-area: 2 / 1 / 3 / 2; }
+        .face-F { grid-area: 2 / 2 / 3 / 3; }
+        .face-R { grid-area: 2 / 3 / 3 / 4; }
+        .face-B { grid-area: 2 / 4 / 3 / 5; }
+        .face-D { grid-area: 3 / 2 / 4 / 3; }
+        
+        .flat-sticker { width: 100%; padding-bottom: 100%; border-radius: 3px; }
+
+        .color-w { background-color: #FEFEFE; } .color-y { background-color: #FEFE00; }
+        .color-g { background-color: #00D800; } .color-b { background-color: #0000F2; }
+        .color-r { background-color: #EE0000; } .color-o { background-color: #FF6D00; }
+        
+        #solution-steps { background-color: #fff; border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: auto; font-family: monospace; font-size: 1.2em; }
+        #solution-steps ol { padding-left: 25px; }
+
+        .note {
+            width: 100%;
+            text-align: center;
+            padding: 20px;
+            margin-top: 30px;
+            background-color: #e9e9e9;
+            border-top: 1px solid #ddd;
+            font-size: 0.9em;
+            color: #444;
+            flex-basis: 100%; /* Ensures it takes full width */
+        }
+        .note p { max-width: 800px; margin: 0 auto; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+    <div class="cube-container">
+        <h1>1D "Flat" Rubik's Cube Solver</h1>
+        <div id="flat-cube-container"></div>
+        <div id="status">Ready.</div>
+    </div>
+
+    <div class="controls">
+        <h2>Controls</h2>
+        <div class="main-actions">
+            <button id="scramble-btn">Scramble (5)</button>
+            <button id="solve-btn">Solve</button>
+        </div>
+        <div>
+            <p><strong>Manual Moves:</strong></p>
+            <button data-move="F">F</button> <button data-move="F_prime">F'</button>
+            <button data-move="B">B</button> <button data-move="B_prime">B'</button>
+            <button data-move="U">U</button> <button data-move="U_prime">U'</button>
+            <button data-move="D">D</button> <button data-move="D_prime">D'</button>
+            <button data-move="L">L</button> <button data-move="L_prime">L'</button>
+            <button data-move="R">R</button> <button data-move="R_prime">R'</button>
+        </div>
+    </div>
+
+    <div class="solution">
+        <h2>Solution Steps</h2>
+        <div id="solution-steps">Solution will be listed here.</div>
+    </div>
+    
+    <!-- Added note as requested -->
+    <div class="note">
+        <p>
+            <strong>Note:</strong> The 'Solve' button uses a basic algorithm that can be slow for complex scrambles. If it takes too long, try scrambling with just 2-3 manual moves (e.g., F, R, U') and then click 'Solve' for a much faster response.
+        </p>
+    </div>
+
+    <script>
+    class Cube {
+        constructor() { this.faces = { U: Array(9).fill('w'), D: Array(9).fill('y'), F: Array(9).fill('g'), B: Array(9).fill('b'), L: Array(9).fill('o'), R: Array(9).fill('r') }; }
+        clone() { const n=new Cube(); for (const f of Object.keys(this.faces)) {n.faces[f]=[...this.faces[f]];} return n; }
+        toString() { return [...this.faces.U, ...this.faces.R, ...this.faces.F, ...this.faces.D, ...this.faces.L, ...this.faces.B].join(''); }
+        isSolved() { for(const k of Object.keys(this.faces)){const c=this.faces[k][4];for(let i=0;i<9;i++){if(this.faces[k][i]!==c)return false;}} return true; }
+        _rFCW(k) { const f=this.faces[k];[f[0],f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8]]=[f[6],f[3],f[0],f[7],f[4],f[1],f[8],f[5],f[2]];}
+        U() { this._rFCW('U'); const t=this.faces.F.slice(0,3); this.faces.F.splice(0,3,...this.faces.R.slice(0,3)); this.faces.R.splice(0,3,...this.faces.B.slice(0,3)); this.faces.B.splice(0,3,...this.faces.L.slice(0,3)); this.faces.L.splice(0,3,...t); return this; }
+        U_prime() { this.U();this.U();this.U(); return this; }
+        D() { this._rFCW('D'); const t=this.faces.F.slice(6,9); this.faces.F.splice(6,3,...this.faces.L.slice(6,9)); this.faces.L.splice(6,3,...this.faces.B.slice(6,9)); this.faces.B.splice(6,3,...this.faces.R.slice(6,9)); this.faces.R.splice(6,3,...t); return this; }
+        D_prime() { this.D();this.D();this.D(); return this; }
+        F() { this._rFCW('F'); const f=this.faces,t=[f.U[6],f.U[7],f.U[8]]; [f.U[6],f.U[7],f.U[8]]=[f.L[8],f.L[5],f.L[2]]; [f.L[2],f.L[5],f.L[8]]=[f.D[0],f.D[1],f.D[2]]; [f.D[0],f.D[1],f.D[2]]=[f.R[6],f.R[3],f.R[0]]; [f.R[0],f.R[3],f.R[6]]=t; return this; }
+        F_prime() { this.F();this.F();this.F(); return this; }
+        B() { this._rFCW('B'); const f=this.faces,t=[f.U[0],f.U[1],f.U[2]]; [f.U[0],f.U[1],f.U[2]]=[f.R[2],f.R[5],f.R[8]]; [f.R[2],f.R[5],f.R[8]]=[f.D[8],f.D[7],f.D[6]]; [f.D[6],f.D[7],f.D[8]]=[f.L[0],f.L[3],f.L[6]]; [f.L[0],f.L[3],f.L[6]]=t; return this; }
+        B_prime() { this.B();this.B();this.B(); return this; }
+        R() { this._rFCW('R'); const f=this.faces,t=[f.U[2],f.U[5],f.U[8]]; [f.U[2],f.U[5],f.U[8]]=[f.F[2],f.F[5],f.F[8]]; [f.F[2],f.F[5],f.F[8]]=[f.D[2],f.D[5],f.D[8]]; [f.D[2],f.D[5],f.D[8]]=[f.B[6],f.B[3],f.B[0]]; [f.B[0],f.B[3],f.B[6]]=t; return this; }
+        R_prime() { this.R();this.R();this.R(); return this; }
+        L() { this._rFCW('L'); const f=this.faces,t=[f.U[0],f.U[3],f.U[6]]; [f.U[0],f.U[3],f.U[6]]=[f.B[8],f.B[5],f.B[2]]; [f.B[2],f.B[5],f.B[8]]=[f.D[0],f.D[3],f.D[6]]; [f.D[0],f.D[3],f.D[6]]=[f.F[0],f.F[3],f.F[6]]; [f.F[0],f.F[3],f.F[6]]=t; return this; }
+        L_prime() { this.L();this.L();this.L(); return this; }
+    }
+
+    let cube = new Cube();
+    const flatCubeContainer = document.getElementById('flat-cube-container');
+    const solutionStepsDiv = document.getElementById('solution-steps');
+    const statusDiv = document.getElementById('status');
+    const allMoves = ['U','U_prime','D','D_prime','F','F_prime','B','B_prime','L','L_prime','R','R_prime'];
+    const faceOrder = ['U', 'R', 'F', 'D', 'L', 'B'];
+
+    function createFlatCubeDOM() {
+        faceOrder.forEach(faceKey => {
+            const faceDiv = document.createElement('div');
+            faceDiv.className = `flat-face face-${faceKey}`;
+            
+            // The face labels have been removed from here
+            
+            for (let i = 0; i < 9; i++) {
+                const stickerDiv = document.createElement('div');
+                stickerDiv.id = `sticker-${faceKey}-${i}`;
+                faceDiv.appendChild(stickerDiv);
+            }
+            flatCubeContainer.appendChild(faceDiv);
+        });
+    }
+
+    function renderCubeState(targetCube) {
+        const cubeString = targetCube.toString();
+        let stringIndex = 0;
+        faceOrder.forEach(faceKey => {
+            for (let i = 0; i < 9; i++) {
+                const sticker = document.getElementById(`sticker-${faceKey}-${i}`);
+                const colorChar = cubeString.charAt(stringIndex);
+                sticker.className = `flat-sticker color-${colorChar}`;
+                stringIndex++;
+            }
+        });
+    }
+
+    function scrambleCube(numMoves = 5) {
+        cube = new Cube();
+        for (let i = 0; i < numMoves; i++) {
+            const randomMove = allMoves[Math.floor(Math.random() * allMoves.length)];
+            cube[randomMove]();
+        }
+        renderCubeState(cube);
+        solutionStepsDiv.innerHTML = `Scrambled with ${numMoves} moves. Ready to solve.`;
+        statusDiv.textContent = 'Cube scrambled. Ready to solve.';
+    }
+
+    function solveCube() {
+        statusDiv.textContent = "Solving...";
+        solutionStepsDiv.innerHTML = "Searching for a solution...";
+        
+        setTimeout(() => {
+            if (cube.isSolved()) { displaySolution([]); return; }
+            const queue = [{ cube: cube.clone(), path: [] }];
+            const visited = new Set([cube.toString()]);
+            const maxIterations = 200000;
+            let iterations = 0;
+            while (queue.length > 0) {
+                iterations++;
+                if (iterations > maxIterations) { statusDiv.textContent = "Solver timed out!"; solutionStepsDiv.innerHTML = "Scramble is too complex for this BFS solver. See note below."; return; }
+                const { cube: currentCube, path } = queue.shift();
+                for (const move of allMoves) {
+                    const nextCube = currentCube.clone();
+                    nextCube[move]();
+                    const nextCubeStr = nextCube.toString();
+                    if (!visited.has(nextCubeStr)) {
+                        visited.add(nextCubeStr);
+                        const newPath = [...path, move];
+                        if (nextCube.isSolved()) { displaySolution(newPath); return; }
+                        queue.push({ cube: nextCube, path: newPath });
+                    }
+                }
+            }
+            statusDiv.textContent = "No solution found.";
+        }, 10);
+    }
+    
+    function displaySolution(path) {
+        if (path.length === 0) {
+            statusDiv.textContent = "Cube is already solved!";
+            solutionStepsDiv.innerHTML = "Nothing to do.";
+            renderCubeState(cube); return;
+        }
+        statusDiv.textContent = `Solution found in ${path.length} moves! Animating...`;
+        let html = '<ol>';
+        path.forEach(move => { html += `<li>${move.replace('_prime', "'")}</li>`; });
+        html += '</ol>';
+        solutionStepsDiv.innerHTML = html;
+        let animationCube = cube.clone();
+        let step = 0;
+        const animate = () => {
+            if (step < path.length) {
+                animationCube[path[step]]();
+                renderCubeState(animationCube);
+                step++;
+                setTimeout(animate, 400);
+            } else {
+                statusDiv.textContent = 'Solved!';
+                cube = new Cube();
+            }
+        };
+        animate();
+    }
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        createFlatCubeDOM();
+        renderCubeState(cube);
+
+        document.getElementById('scramble-btn').addEventListener('click', () => {
+            scrambleCube();
+        });
+
+        document.getElementById('solve-btn').addEventListener('click', solveCube);
+        document.querySelectorAll('.controls button[data-move]').forEach(button => {
+            button.addEventListener('click', () => {
+                const move = button.getAttribute('data-move');
+                cube[move]();
+                renderCubeState(cube);
+                statusDiv.textContent = `Performed move: ${move.replace('_prime', "'")}`;
+                solutionStepsDiv.innerHTML = `Solution steps will be listed here.`;
+            });
+        });
+    });
+    </script>
+</body>
+</html>
